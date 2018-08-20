@@ -14,6 +14,7 @@ use std::sync::Arc;
 use OomError;
 use VulkanObject;
 use buffer::BufferAccess;
+use buffer::BufferUsage;
 use buffer::BufferViewRef;
 use descriptor::descriptor::DescriptorDesc;
 use descriptor::descriptor::DescriptorDescTy;
@@ -33,6 +34,7 @@ use descriptor::pipeline_layout::PipelineLayoutAbstract;
 use device::Device;
 use device::DeviceOwned;
 use format::Format;
+use image::ImageUsage;
 use image::ImageViewAccess;
 use sampler::Sampler;
 
@@ -418,7 +420,10 @@ impl<L, R> PersistentDescriptorSetBuilderArray<L, R>
 
                 if buffer_desc.storage {
                     if !buffer.inner().buffer.usage_storage_buffer() {
-                        return Err(PersistentDescriptorSetError::MissingUsage);
+                        return Err(PersistentDescriptorSetError::MissingUsageBuffer(
+                                       BufferUsage { storage_buffer: true,
+                                                    ..BufferUsage::none() }
+                                   ));
                     }
 
                     unsafe {
@@ -428,7 +433,10 @@ impl<L, R> PersistentDescriptorSetBuilderArray<L, R>
                     }
                 } else {
                     if !buffer.inner().buffer.usage_uniform_buffer() {
-                        return Err(PersistentDescriptorSetError::MissingUsage);
+                        return Err(PersistentDescriptorSetError::MissingUsageBuffer(
+                                       BufferUsage { uniform_buffer: true,
+                                                    ..BufferUsage::none() }
+                                  ));
                     }
 
                     unsafe {
@@ -487,7 +495,9 @@ impl<L, R> PersistentDescriptorSetBuilderArray<L, R>
                     // TODO: storage_texel_buffer_atomic
 
                     if !view.view().storage_texel_buffer() {
-                        return Err(PersistentDescriptorSetError::MissingUsage);
+                        return Err(PersistentDescriptorSetError::MissingUsageBuffer(
+                                       BufferUsage { storage_texel_buffer: true,
+                                                    ..BufferUsage::none() }))
                     }
 
                     DescriptorWrite::storage_texel_buffer(self.builder.binding_id as u32,
@@ -495,7 +505,9 @@ impl<L, R> PersistentDescriptorSetBuilderArray<L, R>
                                                           view.view())
                 } else {
                     if !view.view().uniform_texel_buffer() {
-                        return Err(PersistentDescriptorSetError::MissingUsage);
+                        return Err(PersistentDescriptorSetError::MissingUsageBuffer(
+                                       BufferUsage { uniform_texel_buffer: true,
+                                                    ..BufferUsage::none() }))
                     }
 
                     DescriptorWrite::uniform_texel_buffer(self.builder.binding_id as u32,
@@ -572,7 +584,9 @@ impl<L, R> PersistentDescriptorSetBuilderArray<L, R>
                 array_layers,
             } => {
                 if !image_view.parent().inner().image.usage_input_attachment() {
-                    return Err(PersistentDescriptorSetError::MissingUsage);
+                    return Err(PersistentDescriptorSetError::MissingUsageImage(
+                                   ImageUsage { input_attachment: true,
+                                                ..ImageUsage::none() }))
                 }
 
                 if multisampled && image_view.samples() == 1 {
@@ -756,9 +770,13 @@ fn image_match_desc<I>(image_view: &I, desc: &DescriptorImageDesc)
     where I: ?Sized + ImageViewAccess
 {
     if desc.sampled && !image_view.parent().inner().image.usage_sampled() {
-        return Err(PersistentDescriptorSetError::MissingUsage);
+        return Err(PersistentDescriptorSetError::MissingUsageImage(
+                       ImageUsage { sampled: true,
+                                    ..ImageUsage::none() }))
     } else if !desc.sampled && !image_view.parent().inner().image.usage_storage() {
-        return Err(PersistentDescriptorSetError::MissingUsage);
+        return Err(PersistentDescriptorSetError::MissingUsageImage(
+                       ImageUsage { storage: true,
+                                    ..ImageUsage::none() }))
     }
 
     let image_view_ty = DescriptorImageDescDimensions::from_dimensions(image_view.dimensions());
@@ -1010,7 +1028,8 @@ pub enum PersistentDescriptorSetError {
     IncompatibleImageViewSampler,
 
     /// The buffer or image is missing the correct usage.
-    MissingUsage,
+    MissingUsageBuffer(BufferUsage),
+    MissingUsageImage(ImageUsage),
 
     /// Expected a multisampled image, but got a single-sampled image.
     ExpectedMultisampled,
@@ -1062,8 +1081,11 @@ impl error::Error for PersistentDescriptorSetError {
             PersistentDescriptorSetError::IncompatibleImageViewSampler => {
                 "the image view isn't compatible with the sampler"
             },
-            PersistentDescriptorSetError::MissingUsage => {
-                "the buffer or image is missing the correct usage"
+            PersistentDescriptorSetError::MissingUsageBuffer { .. } => {
+                "the buffer is missing the correct usage"
+            },
+            PersistentDescriptorSetError::MissingUsageImage { .. } => {
+                "the image is missing the correct usage"
             },
             PersistentDescriptorSetError::ExpectedMultisampled => {
                 "expected a multisampled image, but got a single-sampled image"
